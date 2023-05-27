@@ -1,0 +1,91 @@
+clear; clc; clf; close all
+R = 0.25;
+R0 = 0.025;
+B = 3;
+airfoildata = extractCSVdata("xf-sg6043-il-50000.csv");
+[~, AoAIndex] = max(airfoildata.Cl ./ airfoildata.Cd);
+D_TSR = 5;
+D_l = @(r) D_TSR .* r / R;
+D_phi = @(r) atan(2 / 3 ./ D_l(r));
+chord = @(r) 8 * pi .* r .* sin(D_phi(r)) ./ (3 * B * airfoildata.Cl(AoAIndex) .* D_l(r));
+plot((R0:0.001:R ), chord(R0:0.001:R))
+twist = @(r) atan(2 / (3 * D_l(r))) - deg2rad(airfoildata.Alpha(AoAIndex)); %CORRECT
+
+Iterations=100;
+Sections = 10;
+
+density = 1.225;
+v_inf = 10;
+
+r_list = linspace(R0,R,Sections);
+dr = r_list(2) - r_list(1);
+TSRList = 0:.1:10;
+PList = zeros(size(TSRList));
+
+% for TSR = TSRList
+TSR = 9;
+
+    v_a = TSR * v_inf / R;
+
+    a1L = zeros([length(r_list), Iterations + 1]);
+    a2L = zeros([length(r_list), Iterations + 1]);
+    Q = zeros([length(r_list), 1]);
+    for r = r_list
+            phi = D_phi(r);
+            sinphi = sin(phi);
+            cosphi = cos(phi);
+            Cl = interp1(airfoildata.Alpha, airfoildata.Cl, airfoildata.Alpha(AoAIndex), 'linear');
+            Cd = interp1(airfoildata.Alpha, airfoildata.Cd, airfoildata.Alpha(AoAIndex), 'linear');
+            Cn = Cl * cosphi + Cd * sinphi;
+            Ct = Cl * sinphi - Cd * cosphi;
+            solidity = chord(r) * B / (2 * pi * r);
+            a1L(r==r_list, 1) = 1 / (4 * sinphi^2 / (solidity * Cn) + 1);
+            a2L(r==r_list, 1) = 1 / (4 * sinphi*cosphi / (solidity * Cn) - 1);
+        for iter = 1:Iterations
+            a1 = a1L(r==r_list, iter);
+            a2 = a2L(r==r_list, iter);
+            W = sqrt((v_inf * (1 - a1))^2 + (r * v_a * (1 + a2))^2);
+            sinphi = v_inf * (1 - a1) / W;
+            cosphi = r * v_a * (1 + a2) / W;
+            phi = asin(sinphi);
+            aoa = phi - twist(r);
+            
+            Cl = interp1(airfoildata.Alpha, airfoildata.Cl, rad2deg(aoa), 'linear');
+            Cd = interp1(airfoildata.Alpha, airfoildata.Cd, rad2deg(aoa), 'linear');
+
+            Cn = Cl * cosphi + Cd * sinphi;
+            Ct = Cl * sinphi - Cd * cosphi;
+    
+            solidity = chord(r) * B / (2 * pi * r);
+    
+            a1L(r==r_list, iter + 1) = a1 + 0.8 * (-a1 + 1 / (4 * sinphi^2 / (solidity * Cn) + 1));
+            a2L(r==r_list, iter + 1) = a2 + 0.8 * (-a2 + 1 / (4 * sinphi*cosphi / (solidity * Cn) - 1));
+        end
+        Q(r==r_list) = 0.5 * density * B * W^2 * chord(r) * Ct * r^2 * dr;
+    end
+    PList(TSR==TSRList) = sum(Q,"omitnan") * v_a / (0.5 * density * pi * R^3 * v_inf^3);
+% end
+% plot(TSRList,PList)
+% for r = r_list
+%     subplot(2,1,1);
+%     plot(1:(Iterations+1), a1L(r==r_list, :), DisplayName=num2str(r))
+%     hold on
+%     legend
+%     subplot(2,1,2);
+%     plot(1:(Iterations+1), a2L(r==r_list, :), DisplayName=num2str(r))
+%     hold on
+%     legend
+% end
+function dataTable = extractCSVdata(fname)
+    fid = fopen(fname, 'rt');
+    lineCount = 0;
+    while ~feof(fid)
+        line = fgetl(fid);
+        lineCount = lineCount + 1;
+        if contains(line, 'Alpha')
+            break;
+        end
+    end
+    fclose(fid);
+    dataTable = readtable(fname, 'HeaderLines', lineCount - 1);
+end

@@ -1,0 +1,132 @@
+clear; clc; clf; close all
+fname = "xf-sg6043-il-50000.csv";
+fid = fopen(fname, 'rt');
+lineCount = 0;
+while ~feof(fid)
+    line = fgetl(fid);
+    lineCount = lineCount + 1;
+    if contains(line, 'Alpha')
+        break;
+    end
+end
+fclose(fid);
+polar = readtable(fname, 'HeaderLines', lineCount - 1);
+
+%------------------------------
+B = 3;
+N_sections = 100;
+R = 0.25;
+R0 = 0.025;
+
+TSRList = 0:0.1:10;
+CPList = zeros(size(length(TSRList)));
+for TSR = TSRList
+
+    N_it = 30;  % converges by 20
+    phi_iterations = zeros([N_it, N_sections]);
+    a1_iterations = zeros([N_it, N_sections]);
+    a2_iterations = zeros([N_it, N_sections]);
+    
+    %1
+    r = linspace(R0, R, N_sections);
+    lambda_r = TSR .* (r / R);
+    
+    phi = atan(2 ./ (3 * lambda_r));
+    phi_iterations(1, :) = phi;
+    
+    %---------------------
+    
+    [~, max_index] = max(polar.Cl ./ polar.Cd);
+    d_aoa = polar.Alpha(max_index);
+    d_cl = polar.Cl(max_index);
+    d_chord = (8 * pi .* r .* sin(phi)) ./ (3 * B * d_cl * lambda_r);
+    %plot(r,d_chord);
+    d_twist = atan(2 ./ (3 * lambda_r)) - deg2rad(d_aoa);
+    
+    %---------------------
+    
+    %3
+    sigma_r = (B * d_chord) ./ (2 * pi * r);
+    aoa = d_aoa;
+
+
+    for it = 2:N_it
+        a1 = a1_iterations(it- 1, :);
+        a2 = a2_iterations(it - 1, :);
+
+        % 4)
+        Cl = interp1(polar.Alpha, polar.Cl, aoa, 'linear');
+        Cd = interp1(polar.Alpha, polar.Cd, aoa, 'linear');
+        Cn = Cl .* cos(phi) + Cd .* sin(phi);
+        Ct = Cl .* sin(phi) - Cd .* cos(phi);
+
+        mu = r / R;
+        Q = 2 / pi * acos(exp(-B ./ (2) * ((1 - mu)./mu) .* sqrt(1 + (lambda_r).^2./(1-a1).^2)));   
+
+
+        ac = 0.2;
+        a1_1 = 1 ./ (1 + (Q .* 4 .* sin(phi).^2) ./ (sigma_r .* Cn));
+        K = 4 * sin(phi).^2 .* Q ./ (sigma_r .* Cn);
+        a1_2 = 0.5 * (2 + K .* (1 - 2 * ac) - sqrt((K * (1 - 2 * ac) + 2).^2 + 4 * (K * ac^2 - 1)));
+        a1(a1<ac) = a1_1(a1<ac);
+        a1(a1>ac) = real(a1_2(a1>ac));
+
+
+        a2 = 1 ./ ((Q .* 4 .* cos(phi) .* sin(phi) ./ (sigma_r .* Ct)) - 1);
+
+        a1_iterations(it, :) = a1;
+        a2_iterations(it, :) = a2;
+
+        
+    
+        % 5)
+        phi = atan((1 - a1) ./ ((1 + a2) .* lambda_r));
+        phi_iterations(it, :) = phi;
+        
+        
+        % 6)
+        aoa = rad2deg(phi - d_twist);
+    end
+    
+    Cl = interp1(polar.Alpha, polar.Cl, aoa, 'linear');
+    Cd = interp1(polar.Alpha, polar.Cd, aoa, 'linear');
+    
+    reference_a2 = -0.5 + 0.5 * sqrt(1 + (4 * a1 .* (1 - a1)) ./ lambda_r.^2);
+    
+    error = a2 - reference_a2;
+    c_ind = find(error < 1e-3);
+    if length(c_ind) >= 2
+        
+        v_inf = 10;
+        density = 1.225;
+        
+        dL = 0.5 * density * (v_inf .* (1 - a1) ./ sin(phi)).^2 .* d_chord .* Q;
+
+        % r_conv = r(convergence_index:end);
+        % l_conv =  dL(convergence_index:end);
+
+        % hold on
+        % plot(r, dL);
+        %plot(r(c_ind), z(c_ind));
+        
+        U = 10;
+        
+
+        % integrand = lambda_r.^3 .* a2 .* (1 - a1) .* (1 - Cd .* cot(phi) ./ Cl);
+        % lambda_converged = lambda_r(convergence_index:end);
+        % integrand_converged = integrand(convergence_index:end);
+        % CPList(TSR==TSRList) = (8 / TSR^2) * trapz(lambda_converged, integrand_converged);
+        dM = 0.5 * density * B * (v_inf .* (1 - a1) ./ sin(phi)).^2 .* d_chord .* Ct .* r .* Q;
+        maxP = 0.5 * density * pi * R^2 * v_inf^3;
+        CPList(TSR==TSRList) = TSR * v_inf / R * trapz(r(c_ind),dM(c_ind)) / maxP;
+        % a1 = a1(convergence_index:end);
+        % a2 = a2(convergence_index:end);
+        % sum(0.5 * 1.225 * B * (10*(1-a1).^2 + (TSR*10*(1+a2).^2)) .* d_chord .* (Cl .* cos(phi) - Cd .* cos(phi)) .* r^2 * (r(2)-r(1)) )
+        % CPList(TSR==TSRList, tolerance=toleranceList) = 
+    end
+end
+plot(TSRList,CPList);
+[maxCp, maxCpIndex] = max(CPList);
+fprintf("Max CP is %8.3f, and at TSR %4.2f", maxCp, TSRList(maxCpIndex))
+
+
