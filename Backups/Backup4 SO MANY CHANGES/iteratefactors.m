@@ -1,4 +1,4 @@
-function [a1, a2, phi, Cl, Cd, Cn, Ct, aoa, Q] = iteratefactors(B,R,R0,N_sections, airfoil_profile,polars, TSR, N_it,d_chord,d_twist,relax_factor)
+function [a1, a2, phi, Cl, Cd, Cn, Ct, aoa, Q] = iteratefactors(B,R,R0,N_sections, airfoil_profile,polars, TSR, N_it,d_chord,d_twist)
     r = linspace(R0, R, N_sections);
     lambda_r = TSR .* (r / R);
     
@@ -48,6 +48,7 @@ function [a1, a2, phi, Cl, Cd, Cn, Ct, aoa, Q] = iteratefactors(B,R,R0,N_section
         a1f = 1 ./ (K + 1) .* (a1(it-1,:) < ac) + abs(0.5 * (2 + K .* (1 - 2 * ac) - sqrt((K * (1 - 2 * ac) + 2).^2 + 4 * (K * ac^2 - 1)))) .* (a1(it-1,:) >= ac);
         a2f = 1 ./ ((Q(it,:) .* 4 .* cos(phi(it-1, :)) .* sin(phi(it-1, :)) ./ (sigma_r .* Ct)) - 1);
         
+        relax_factor = 0.5;
         a1(it,:) = relax_factor * a1(it-1,:) + (1 - relax_factor) * a1f;
         a2(it,:) = relax_factor * a2(it-1,:) + (1 - relax_factor) * a2f;
 
